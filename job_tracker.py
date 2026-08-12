@@ -138,7 +138,7 @@ def save_jobs(new_jobs):
             writer.writerow([job['company'], job['job_title'], job['location'], job['pub_date'], job['link'], '未投递'])
 
 def send_email_with_attachment(subject, content):
-    """发送邮件"""
+    """发送带 CSV 表格附件的邮件"""
     sender = os.environ.get('EMAIL_SENDER', '').strip()
     password = os.environ.get('EMAIL_PASSWORD', '').strip()
     receiver = os.environ.get('EMAIL_RECEIVER', '').strip()
@@ -180,7 +180,8 @@ def send_email_with_attachment(subject, content):
     try:
         server = smtplib.SMTP_SSL(smtp_server, 465, timeout=10)
         server.login(sender, password)
-        server.sendmail(sender, [receiver], message.as_string())
+        # 已修正此处变量名：使用 msg.as_string()
+        server.sendmail(sender, [receiver], msg.as_string())
         server.quit()
         print("📧 带附件的邮件发送成功！")
     except Exception as e:
