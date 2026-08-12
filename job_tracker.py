@@ -6,6 +6,7 @@ import urllib.request
 import urllib.parse
 from email.mime.text import MIMEText
 from email.header import Header
+from email.utils import formataddr
 
 # ================= 筛选条件配置 =================
 LOCATION_KEYWORDS = ['深圳', '全国', '不限', '远程', '广东', '华南']
@@ -43,7 +44,6 @@ def parse_markdown_tables(content):
         if '|' in line:
             parts = [p.strip() for p in line.split('|')]
             if len(parts) >= 3:
-                # 正确提取列表中的字符串字段
                 company = parts if len(parts) > 1 else ""
                 job_title = parts if len(parts) > 2 else ""
                 location = parts if len(parts) > 3 else ""
@@ -102,23 +102,39 @@ def save_jobs(new_jobs):
             writer.writerow([job['company'], job['job_title'], job['location'], job['link'], '未投递'])
 
 def send_email(subject, content):
-    """发送邮件辅助函数"""
-    sender = os.environ.get('EMAIL_SENDER')
-    password = os.environ.get('EMAIL_PASSWORD')
-    receiver = os.environ.get('EMAIL_RECEIVER')
-    smtp_server = os.environ.get('SMTP_SERVER', 'smtp.qq.com')
+    """发送邮件辅助函数（严格遵从 RFC 标头规范）"""
+    sender = os.environ.get('EMAIL_SENDER', '').strip()
+    password = os.environ.get('EMAIL_PASSWORD', '').strip()
+    receiver = os.environ.get('EMAIL_RECEIVER', '').strip()
+    smtp_server = os.environ.get('SMTP_SERVER', '').strip()
+
+    # 清洗域名
+    if smtp_server:
+        smtp_server = re.sub(r'^https?://', '', smtp_server).split('/')[0].split(':')[0]
+    
+    # 自动定位发件服务器
+    if not smtp_server:
+        if '@qq.com' in sender.lower():
+            smtp_server = 'smtp.qq.com'
+        elif '@163.com' in sender.lower():
+            smtp_server = 'smtp.163.com'
+        elif '@gmail.com' in sender.lower():
+            smtp_server = 'smtp.gmail.com'
+        else:
+            smtp_server = 'smtp.qq.com'
 
     if not sender or not password or not receiver:
-        print("⚠️ 未配置邮件环境变量，跳过发送邮件。")
+        print("⚠️ 未配置完整的 EMAIL_SENDER、EMAIL_PASSWORD 或 EMAIL_RECEIVER 环境变量，跳过发送邮件。")
         return
 
     message = MIMEText(content, 'plain', 'utf-8')
-    message['From'] = Header(f"秋招助手 <{sender}>")
-    message['To'] = Header(receiver)
+    # 使用 formataddr 标准格式化，解决 550 发件人拦截问题
+    message['From'] = formataddr(('秋招助手', sender))
+    message['To'] = formataddr(('订阅用户', receiver))
     message['Subject'] = Header(subject, 'utf-8')
 
     try:
-        server = smtplib.SMTP_SSL(smtp_server, 465)
+        server = smtplib.SMTP_SSL(smtp_server, 465, timeout=10)
         server.login(sender, password)
         server.sendmail(sender, [receiver], message.as_string())
         server.quit()
@@ -164,4 +180,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    
