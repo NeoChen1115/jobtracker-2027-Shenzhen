@@ -2,19 +2,21 @@ name: Daily Shenzhen Data Job Tracker
 
 on:
   schedule:
-    # 每天北京时间早上 8:00 自动运行 (UTC 时间 0:00)
     - cron: '0 0 * * *'
-  workflow_dispatch: # 支持手动点击按钮触发运行
+  workflow_dispatch:
+
+permissions:
+  contents: write  # 显式开通仓库写入权限
 
 jobs:
   run-tracker:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # 升级到 v4 解决 Warning
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5  # 升级到 v5 解决 Warning
         with:
           python-version: '3.x'
 
@@ -30,6 +32,8 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add shenzhen_2027_data_jobs.csv
-          git commit -m "Auto update Shenzhen 2027 DA/DS/BA job list" || exit 0
-          git push
+          if [ -f "shenzhen_2027_data_jobs.csv" ]; then
+            git add shenzhen_2027_data_jobs.csv
+            git commit -m "Auto update Shenzhen 2027 DA/DS/BA job list" || echo "No changes to commit"
+            git push
+          fi
