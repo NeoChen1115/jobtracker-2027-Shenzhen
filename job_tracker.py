@@ -43,13 +43,14 @@ def parse_markdown_tables(content):
         if '|' in line:
             parts = [p.strip() for p in line.split('|')]
             if len(parts) >= 3:
-                # 过滤表格头部
-                if any(x in parts for x in ['---', '公司', '名称']):
-                    continue
-                
+                # 正确提取列表中的字符串字段
                 company = parts if len(parts) > 1 else ""
                 job_title = parts if len(parts) > 2 else ""
                 location = parts if len(parts) > 3 else ""
+                
+                # 过滤表格头部和格式线
+                if any(x in str(company) for x in ['---', '公司', '名称', ':---']):
+                    continue
                 
                 # 尝试提取链接
                 link = ""
@@ -59,10 +60,10 @@ def parse_markdown_tables(content):
 
                 if company and job_title:
                     jobs.append({
-                        'company': company,
-                        'job_title': job_title,
-                        'location': location,
-                        'link': link
+                        'company': str(company),
+                        'job_title': str(job_title),
+                        'location': str(location),
+                        'link': str(link)
                     })
     return jobs
 
@@ -70,8 +71,11 @@ def filter_jobs(jobs):
     """过滤深圳地区 + DA/DS/BA 相关岗位"""
     filtered = []
     for job in jobs:
-        title_match = any(k.lower() in job['job_title'].lower() for k in JOB_KEYWORDS)
-        loc_match = any(k in job['location'] for k in LOCATION_KEYWORDS) or not job['location']
+        job_title_str = str(job.get('job_title', ''))
+        location_str = str(job.get('location', ''))
+        
+        title_match = any(k.lower() in job_title_str.lower() for k in JOB_KEYWORDS)
+        loc_match = any(k in location_str for k in LOCATION_KEYWORDS) or not location_str
         
         if title_match and loc_match:
             filtered.append(job)
@@ -84,7 +88,7 @@ def load_existing_jobs():
         with open(CSV_FILE, mode='r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                existing.add((row['公司名称'], row['岗位名称']))
+                existing.add((row.get('公司名称', ''), row.get('岗位名称', '')))
     return existing
 
 def save_jobs(new_jobs):
@@ -155,10 +159,6 @@ def main():
         send_email(f"【秋招提醒】新增 {len(new_jobs)} 个深圳数据岗位！", content)
     else:
         print("当前无新增匹配岗位。")
-        # 首次部署测试：发一封通知确认邮件
-        if not os.path.exists(CSV_FILE):
-            save_jobs([])
-            send_email("【秋招助手】系统连接成功通知", "恭喜！你的 2027 届深圳 DA/DS/BA 秋招监控系统已成功部署并运行！\n\n一旦有符合要求的深圳数据类岗位开启网申，系统将第一时间发邮件提醒你！")
 
 if __name__ == '__main__':
     main()
