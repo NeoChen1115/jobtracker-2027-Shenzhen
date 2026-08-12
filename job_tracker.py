@@ -2,29 +2,36 @@ import os
 import re
 import csv
 import smtplib
+import urllib.request
+import urllib.parse
 from email.mime.text import MIMEText
 from email.header import Header
-import urllib.request
 
 # ================= 筛选条件配置 =================
-LOCATION_KEYWORDS = ['深圳', '全国', '不限', '远程']
-JOB_KEYWORDS = ['数据分析', '数据科学', '商业分析', 'DA', 'DS', 'BA', 'Data Analyst', 'Data Scientist', 'Business Analyst']
+LOCATION_KEYWORDS = ['深圳', '全国', '不限', '远程', '广东']
+JOB_KEYWORDS = ['数据分析', '数据科学', '商业分析', '数据', 'DA', 'DS', 'BA', 'Data Analyst', 'Data Scientist', 'Business Analyst']
 CSV_FILE = 'shenzhen_2027_data_jobs.csv'
 
-# GitHub 开源秋招/校招数据源（Markdown 格式）
+# GitHub 开源秋招/校招数据源列表
 SOURCES = [
     {
-        "name": "GitHub 秋招汇总",
-        "url": "https://raw.githubusercontent.com/CodersGo/2027校招信息汇总/main/README.md"  # 可根据实际活跃 Repo 替换 URL
+        "name": "2027校招汇总源1",
+        "url": "https://raw.githubusercontent.com/CodersGo/2027校招信息汇总/main/README.md"
+    },
+    {
+        "name": "2026-2027校招汇总源2",
+        "url": "https://raw.githubusercontent.com/hky2019/2025-2026-Job-Opportunities/main/README.md"
     }
 ]
 
 def fetch_markdown(url):
-    """抓取 Markdown 文本"""
+    """抓取 Markdown 文本并对中文 URL 进行自动安全转义"""
     try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=10) as response:
-            return response.read().decode('utf-8')
+        # 对包含中文的 URL 进行 safe 转义编码
+        safe_url = urllib.parse.quote(url, safe=':/%?&=#')
+        req = urllib.request.Request(safe_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+        with urllib.request.urlopen(req, timeout=15) as response:
+            return response.read().decode('utf-8', errors='ignore')
     except Exception as e:
         print(f"抓取失败 {url}: {e}")
         return ""
@@ -37,18 +44,17 @@ def parse_markdown_tables(content):
         if '|' in line:
             parts = [p.strip() for p in line.split('|')]
             if len(parts) >= 4:
-                # 简单清洗表格字段
                 company = parts
                 job_title = parts
-                location = parts[3] if len(parts) > 3 else ""
+                location = parts if len(parts) > 3 else ""
                 link = ""
                 
-                # 提取链接
+                # 提取 Markdown 超链接 [名称](http...)
                 link_match = re.search(r'\[.*?\]\((.*?)\)', line)
                 if link_match:
                     link = link_match.group(1)
 
-                if company and job_title and company not in ['公司名称', '公司', '---']:
+                if company and job_title and company not in ['公司名称', '公司', '---', ':---']:
                     jobs.append({
                         'company': company,
                         'job_title': job_title,
@@ -61,7 +67,6 @@ def filter_jobs(jobs):
     """过滤深圳地区 + DA/DS/BA 相关岗位"""
     filtered = []
     for job in jobs:
-        # 已修正此处的语法：for k in JOB_KEYWORDS
         title_match = any(k.lower() in job['job_title'].lower() for k in JOB_KEYWORDS)
         loc_match = any(k in job['location'] for k in LOCATION_KEYWORDS) or not job['location']
         
@@ -92,7 +97,7 @@ def save_jobs(new_jobs):
 def send_email_notification(new_jobs):
     """当有新岗位时发送邮件提醒"""
     sender = os.environ.get('EMAIL_SENDER')
-    password = os.environ.get('EMAIL_PASSWORD') # 授权码/密码
+    password = os.environ.get('EMAIL_PASSWORD')
     receiver = os.environ.get('EMAIL_RECEIVER')
     smtp_server = os.environ.get('SMTP_SERVER', 'smtp.qq.com')
 
@@ -100,7 +105,7 @@ def send_email_notification(new_jobs):
         print("未配置邮件环境变量，跳过邮件通知。")
         return
 
-    content = "🎉 发现新增深圳 2027 届 DA/DS/BA 岗位：\n\n"
+    content = f"🎉 发现新增深圳 2027 届 DA/DS/BA 岗位共 {len(new_jobs)} 个：\n\n"
     for job in new_jobs:
         content += f"🏢 公司：{job['company']}\n📌 岗位：{job['job_title']}\n📍 地点：{job['location']}\n🔗 链接：{job['link']}\n"
         content += "-" * 30 + "\n"
@@ -123,8 +128,11 @@ def main():
     print("开始抓取秋招信息...")
     all_raw_jobs = []
     for src in SOURCES:
+        print(f"正在抓取数据源: {src['name']}")
         content = fetch_markdown(src['url'])
-        all_raw_jobs.extend(parse_markdown_tables(content))
+        parsed = parse_markdown_tables(content)
+        print(f"数据源 {src['name']} 解析到 {len(parsed)} 条原始信息")
+        all_raw_jobs.extend(parsed)
     
     # 筛选
     target_jobs = filter_jobs(all_raw_jobs)
@@ -138,10 +146,12 @@ def main():
             new_jobs.append(job)
             existing_jobs.add(key)
             
-    print(f"筛选完成！本次新增 {len(new_jobs)} 个相关岗位。")
+    print(f"筛选匹配完成！本次新增 {len(new_jobs)} 个相关岗位。")
     if new_jobs:
         save_jobs(new_jobs)
         send_email_notification(new_jobs)
+    else:
+        print("当前暂无新增匹配岗位。")
 
 if __name__ == '__main__':
     main()
