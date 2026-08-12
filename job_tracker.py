@@ -38,8 +38,8 @@ def parse_markdown_tables(content):
             parts = [p.strip() for p in line.split('|')]
             if len(parts) >= 4:
                 # 简单清洗表格字段
-                company = parts[1]
-                job_title = parts[2]
+                company = parts
+                job_title = parts
                 location = parts[3] if len(parts) > 3 else ""
                 link = ""
                 
@@ -61,7 +61,8 @@ def filter_jobs(jobs):
     """过滤深圳地区 + DA/DS/BA 相关岗位"""
     filtered = []
     for job in jobs:
-        title_match = any(k.lower() in job['job_title'].lower() for k.lower() in JOB_KEYWORDS)
+        # 已修正此处的语法：for k in JOB_KEYWORDS
+        title_match = any(k.lower() in job['job_title'].lower() for k in JOB_KEYWORDS)
         loc_match = any(k in job['location'] for k in LOCATION_KEYWORDS) or not job['location']
         
         if title_match and loc_match:
