@@ -18,15 +18,11 @@ JOB_KEYWORDS = ['数据分析', '数据科学', '商业分析', '数据', 'DA', 
 
 CSV_FILE = 'shenzhen_2027_data_jobs.csv'
 
-# GitHub 真实活跃的秋招/校招数据源列表
+# 专注于 2027 届最新秋招/校招的数据源列表
 SOURCES = [
     {
-        "name": "xixicc2027 (2027届秋招信息)",
+        "name": "xixicc2027 (2027届专属秋招信息每日聚合)",
         "url": "https://raw.githubusercontent.com/xixicc186/xixicc2027/main/README.md"
-    },
-    {
-        "name": "Campus2026 (校招&实习信息)",
-        "url": "https://raw.githubusercontent.com/namewyf/Campus2026/main/README.md"
     }
 ]
 
@@ -100,7 +96,7 @@ def parse_markdown_tables(content):
     return jobs
 
 def filter_jobs(jobs):
-    """精准过滤：严格深圳 + 数据岗位"""
+    """精准过滤：严格 2027届 + 深圳 + 数据岗位"""
     filtered = []
     for job in jobs:
         job_title = job['job_title']
@@ -184,20 +180,20 @@ def send_email_with_attachment(subject, content):
     try:
         server = smtplib.SMTP_SSL(smtp_server, 465, timeout=10)
         server.login(sender, password)
-        server.sendmail(sender, [receiver], msg.as_string())
+        server.sendmail(sender, [receiver], message.as_string())
         server.quit()
         print("📧 带附件的邮件发送成功！")
     except Exception as e:
         print(f"❌ 邮件发送失败: {e}")
 
 def main():
-    print("开始抓取与清理解析秋招信息...")
+    print("开始抓取 2027 届最新秋招信息...")
     all_raw_jobs = []
     for src in SOURCES:
         print(f"正在抓取数据源: {src['name']}")
         content = fetch_markdown(src['url'])
         parsed = parse_markdown_tables(content)
-        print(f"数据源 {src['name']} 解析到 {len(parsed)} 条规范信息")
+        print(f"数据源 {src['name']} 解析到 {len(parsed)} 条 2027 届秋招信息")
         all_raw_jobs.extend(parsed)
     
     # 筛选
@@ -212,10 +208,9 @@ def main():
             new_jobs.append(job)
             existing_jobs.add(key)
             
-    # 透明明细日志打印
-    print(f"📊 [数据统计] 当前数据源符合【深圳数据岗】条件的总岗位数: {len(target_jobs)} 个")
-    print(f"📊 [数据统计] 表格已归档保存的岗位数: {len(existing_jobs)} 个")
-    print(f"📊 [数据统计] 本次巡检计算出的【增量新岗位】: {len(new_jobs)} 个")
+    print(f"📊 [2027届数据统计] 匹配【深圳 2027届数据岗】总数: {len(target_jobs)} 个")
+    print(f"📊 [2027届数据统计] 表格已保存岗位数: {len(existing_jobs)} 个")
+    print(f"📊 [2027届数据统计] 本次巡检计算出的新增岗位: {len(new_jobs)} 个")
     
     if new_jobs:
         save_jobs(new_jobs)
@@ -225,9 +220,9 @@ def main():
             content += "-" * 30 + "\n"
         send_email_with_attachment(f"【秋招提醒】新增 {len(new_jobs)} 个深圳数据岗位！（含最新 Excel 附件）", content)
     else:
-        print("当前无增量新岗位，发送巡检邮件...")
-        content = f"✅ 秋招监控系统正常运行中！\n\n数据源中目前符合条件的【深圳】DA/DS/BA 岗位共 {len(target_jobs)} 个，已全部为您归档存入附件表格中。\n本次巡检暂无新发增量岗位，完整的岗位表格已随附件发送给您！"
-        send_email_with_attachment("【秋招助手】最新深圳数据岗位汇总表（含附件）", content)
+        print("当前无新增匹配岗位，发送巡检邮件...")
+        content = f"✅ 2027 届秋招监控系统正常运行中！\n\n数据源中目前符合条件的【深圳 2027 届】DA/DS/BA 岗位共 {len(target_jobs)} 个，已全部为您归档存入附件表格中。\n本次巡检暂无新发增量岗位，完整的 2027 届岗位表格已随附件发送给您！"
+        send_email_with_attachment("【秋招助手】最新深圳2027届数据岗位汇总表（含附件）", content)
 
 if __name__ == '__main__':
     main()
