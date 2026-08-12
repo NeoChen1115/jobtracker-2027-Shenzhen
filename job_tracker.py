@@ -12,8 +12,13 @@ from email.header import Header
 from email.utils import formataddr
 
 # ================= 筛选条件配置 =================
-LOCATION_KEYWORDS = ['深圳', '全国', '不限', '远程', '广东', '华南']
+# 强匹配深圳
+STRICT_SHENZHEN_KEYWORDS = ['深圳', 'Shenzhen', '深']
+# 明确排除其他非深圳城市
+EXCLUDE_CITIES = ['广州', '郑州', '北京', '上海', '杭州', '成都', '武汉', '南京', '苏州', '合肥', '长沙', '重庆', '天津', '厦门', '东莞', '佛山']
+# 岗位强匹配关键字
 JOB_KEYWORDS = ['数据分析', '数据科学', '商业分析', '数据', 'DA', 'DS', 'BA', 'Data', 'Analyst', 'Scientist']
+
 CSV_FILE = 'shenzhen_2027_data_jobs.csv'
 
 # GitHub 真实活跃的秋招/校招数据源列表
@@ -41,7 +46,6 @@ def clean_markdown_text(text):
     text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', text)
     # 去除加粗/斜体 **text** / *text*
     text = re.sub(r'\*+', '', text)
-    # 去除多余空格与换行
     return text.strip()
 
 def extract_url_from_line(line):
@@ -77,7 +81,6 @@ def parse_markdown_tables(content):
         if '|' in line:
             parts = [p.strip() for p in line.split('|')]
             if len(parts) >= 3:
-                # 修复下标：parts公司，parts岗位，parts地点
                 raw_company = parts if len(parts) > 1 else ""
                 raw_job = parts if len(parts) > 2 else ""
                 raw_location = parts if len(parts) > 3 else ""
@@ -97,22 +100,32 @@ def parse_markdown_tables(content):
                     jobs.append({
                         'company': company,
                         'job_title': job_title,
-                        'location': location if location else '不限/全国',
+                        'location': location if location else '深圳',
                         'pub_date': pub_date,
                         'link': link
                     })
     return jobs
 
 def filter_jobs(jobs):
-    """过滤深圳地区 + DA/DS/BA 相关岗位"""
+    """精准过滤：严格必须包含深圳 + DA/DS/BA/数据岗位"""
     filtered = []
     for job in jobs:
         job_title = job['job_title']
         location = job['location']
         
+        # 1. 岗位匹配
         title_match = any(k.lower() in job_title.lower() for k in JOB_KEYWORDS)
-        loc_match = any(k in location for k in LOCATION_KEYWORDS) or not location or location == '不限/全国'
         
+        # 2. 地点精准匹配（排除异地，强保留深圳）
+        has_exclude_city = any(city in location for city in EXCLUDE_CITIES)
+        has_shenzhen = any(sz in location for sz in STRICT_SHENZHEN_KEYWORDS)
+        
+        loc_match = False
+        if has_shenzhen:
+            loc_match = True
+        elif not has_exclude_city and (not location or location in ['不限', '全国', '远程']):
+            loc_match = True
+
         if title_match and loc_match:
             filtered.append(job)
     return filtered
@@ -128,7 +141,7 @@ def load_existing_jobs():
     return existing
 
 def save_jobs(new_jobs):
-    """保存新岗位至 CSV 表格，加入【发布/更新日期】列"""
+    """保存新岗位至 CSV 表格"""
     file_exists = os.path.exists(CSV_FILE)
     with open(CSV_FILE, mode='a', encoding='utf-8-sig', newline='') as f:
         writer = csv.writer(f)
@@ -161,16 +174,13 @@ def send_email_with_attachment(subject, content):
         print("⚠️ 未配置完整的 EMAIL_SENDER、EMAIL_PASSWORD 或 EMAIL_RECEIVER 环境变量，跳过发送邮件。")
         return
 
-    # 创建带附件的邮件
     msg = MIMEMultipart()
     msg['From'] = formataddr(('秋招助手', sender))
     msg['To'] = formataddr(('订阅用户', receiver))
     msg['Subject'] = Header(subject, 'utf-8')
 
-    # 添加正文
     msg.attach(MIMEText(content, 'plain', 'utf-8'))
 
-    # 添加 CSV 文件附件
     if os.path.exists(CSV_FILE):
         try:
             with open(CSV_FILE, 'rb') as f:
@@ -211,18 +221,18 @@ def main():
             new_jobs.append(job)
             existing_jobs.add(key)
             
-    print(f"筛选匹配完成！本次新增 {len(new_jobs)} 个相关岗位。")
+    print(f"筛选匹配完成！本次新增 {len(new_jobs)} 个深圳相关岗位。")
     
     if new_jobs:
         save_jobs(new_jobs)
-        content = f"🎉 发现新增深圳 2027 届 DA/DS/BA 岗位共 {len(new_jobs)} 个（最新 Excel 表格已发送至邮件附件）：\n\n"
+        content = f"🎉 发现新增【深圳】2027 届 DA/DS/BA 岗位共 {len(new_jobs)} 个（最新 Excel 表格已发送至邮件附件）：\n\n"
         for job in new_jobs:
             content += f"🏢 公司：{job['company']}\n📌 岗位：{job['job_title']}\n📍 地点：{job['location']}\n📅 发布日期：{job['pub_date']}\n🔗 链接：{job['link']}\n"
             content += "-" * 30 + "\n"
         send_email_with_attachment(f"【秋招提醒】新增 {len(new_jobs)} 个深圳数据岗位！（含最新 Excel 附件）", content)
     else:
-        print("当前无新增匹配岗位，发送带有最新表格附件的巡检邮件...")
-        content = f"✅ 秋招监控系统正常运行中！\n\n当前累计为你追踪到 {len(existing_jobs)} 个符合条件的深圳 DA/DS/BA 岗位。\n本次巡检暂无新开放岗位，已将最新的完整岗位汇总表作为附件发送给你，方便随时查阅与投递！"
+        print("当前无新增匹配岗位，发送巡检邮件...")
+        content = f"✅ 秋招监控系统正常运行中！\n\n当前累计为你追踪到 {len(existing_jobs)} 个符合条件的【深圳】DA/DS/BA 岗位。\n本次巡检暂无新开放岗位，已将最新的完整岗位汇总表作为附件发送给你！"
         send_email_with_attachment("【秋招助手】最新深圳数据岗位汇总表（含附件）", content)
 
 if __name__ == '__main__':
