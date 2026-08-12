@@ -14,9 +14,10 @@ from email.utils import formataddr
 # ================= 筛选条件配置 =================
 STRICT_SHENZHEN_KEYWORDS = ['深圳', 'Shenzhen', '深']
 EXCLUDE_CITIES = ['广州', '郑州', '北京', '上海', '杭州', '成都', '武汉', '南京', '苏州', '合肥', '长沙', '重庆', '天津', '厦门', '东莞', '佛山']
-JOB_KEYWORDS = ['数据分析', '数据科学', '商业分析', '数据', 'DA', 'DS', 'BA', 'Data', 'Analyst', 'Scientist']
+DATA_JOB_KEYWORDS = ['数据分析', '数据科学', '商业分析', '数据', 'DA', 'DS', 'BA', 'Data', 'Analyst', 'Scientist']
 
-CSV_FILE = 'shenzhen_2027_data_jobs.csv'
+CSV_ALL_JOBS = 'shenzhen_all_jobs.csv'       # 全量深圳岗位表格（两人共享）
+CSV_DATA_JOBS = 'shenzhen_data_jobs.csv'     # 个人数据专岗表格（个人专属）
 
 # 专注于 2027 届最新秋招/校招的数据源列表
 SOURCES = [
@@ -95,53 +96,52 @@ def parse_markdown_tables(content):
                     })
     return jobs
 
-def filter_jobs(jobs):
-    """精准过滤：严格 2027届 + 深圳 + 数据岗位"""
+def filter_all_shenzhen_jobs(jobs):
+    """筛选所有深圳地区的岗位（不限专业类型，适合共享）"""
     filtered = []
     for job in jobs:
-        job_title = job['job_title']
         location = job['location']
-        
-        title_match = any(k.lower() in job_title.lower() for k in JOB_KEYWORDS)
-        
         has_exclude_city = any(city in location for city in EXCLUDE_CITIES)
         has_shenzhen = any(sz in location for sz in STRICT_SHENZHEN_KEYWORDS)
         
-        loc_match = False
-        if has_shenzhen:
-            loc_match = True
-        elif not has_exclude_city and (not location or location in ['不限', '全国', '远程']):
-            loc_match = True
-
-        if title_match and loc_match:
+        if has_shenzhen or (not has_exclude_city and (not location or location in ['不限', '全国', '远程'])):
             filtered.append(job)
     return filtered
 
-def load_existing_jobs():
-    """读取历史已存岗位"""
+def filter_data_jobs(jobs):
+    """个人精选：深圳 + DA/DS/BA 数据相关岗位"""
+    filtered = []
+    for job in jobs:
+        job_title = job['job_title']
+        title_match = any(k.lower() in job_title.lower() for k in DATA_JOB_KEYWORDS)
+        if title_match:
+            filtered.append(job)
+    return filtered
+
+def load_existing_jobs(file_path):
+    """读取已存历史岗位"""
     existing = set()
-    if os.path.exists(CSV_FILE):
-        with open(CSV_FILE, mode='r', encoding='utf-8-sig') as f:
+    if os.path.exists(file_path):
+        with open(file_path, mode='r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
             for row in reader:
                 existing.add((row.get('公司名称', ''), row.get('岗位名称', '')))
     return existing
 
-def save_jobs(new_jobs):
-    """保存新岗位"""
-    file_exists = os.path.exists(CSV_FILE)
-    with open(CSV_FILE, mode='a', encoding='utf-8-sig', newline='') as f:
+def save_jobs(file_path, new_jobs):
+    """保存新岗位至指定 CSV 文件"""
+    file_exists = os.path.exists(file_path)
+    with open(file_path, mode='a', encoding='utf-8-sig', newline='') as f:
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow(['公司名称', '岗位名称', '工作地点', '发布/更新日期', '投递链接', '投递状态'])
         for job in new_jobs:
             writer.writerow([job['company'], job['job_title'], job['location'], job['pub_date'], job['link'], '未投递'])
 
-def send_email_with_attachment(subject, content):
-    """发送带 CSV 表格附件的邮件"""
+def send_email_with_attachment(to_receivers, subject, content, attachment_file, attachment_name):
+    """支持多收件人和自定附件的通用发信函数"""
     sender = os.environ.get('EMAIL_SENDER', '').strip()
     password = os.environ.get('EMAIL_PASSWORD', '').strip()
-    receiver = os.environ.get('EMAIL_RECEIVER', '').strip()
     smtp_server = os.environ.get('SMTP_SERVER', '').strip()
 
     if smtp_server:
@@ -157,22 +157,23 @@ def send_email_with_attachment(subject, content):
         else:
             smtp_server = 'smtp.qq.com'
 
-    if not sender or not password or not receiver:
-        print("⚠️ 未配置完整的 EMAIL_SENDER、EMAIL_PASSWORD 或 EMAIL_RECEIVER 环境变量，跳过发送邮件。")
+    if not sender or not password or not to_receivers:
+        print("⚠️ 发件环境或收件人列表缺失，跳过发送。")
         return
 
     msg = MIMEMultipart()
     msg['From'] = formataddr(('秋招助手', sender))
-    msg['To'] = formataddr(('订阅用户', receiver))
+    msg['To'] = ", ".join([formataddr(('求职伙伴', addr)) for addr in to_receivers])
     msg['Subject'] = Header(subject, 'utf-8')
 
     msg.attach(MIMEText(content, 'plain', 'utf-8'))
 
-    if os.path.exists(CSV_FILE):
+    # 添加指定表格附件
+    if os.path.exists(attachment_file):
         try:
-            with open(CSV_FILE, 'rb') as f:
-                part = MIMEApplication(f.read(), Name='shenzhen_2027_data_jobs.csv')
-                part.add_header('Content-Disposition', 'attachment', filename=('utf-8', '', '深圳2027数据岗位汇总表.csv'))
+            with open(attachment_file, 'rb') as f:
+                part = MIMEApplication(f.read(), Name=attachment_name)
+                part.add_header('Content-Disposition', 'attachment', filename=('utf-8', '', attachment_name))
                 msg.attach(part)
         except Exception as e:
             print(f"附件添加失败: {e}")
@@ -180,10 +181,9 @@ def send_email_with_attachment(subject, content):
     try:
         server = smtplib.SMTP_SSL(smtp_server, 465, timeout=10)
         server.login(sender, password)
-        # 已修正此处变量名：使用 msg.as_string()
-        server.sendmail(sender, [receiver], msg.as_string())
+        server.sendmail(sender, to_receivers, msg.as_string())
         server.quit()
-        print("📧 带附件的邮件发送成功！")
+        print(f"📧 邮件成功发送给: {to_receivers}")
     except Exception as e:
         print(f"❌ 邮件发送失败: {e}")
 
@@ -194,36 +194,66 @@ def main():
         print(f"正在抓取数据源: {src['name']}")
         content = fetch_markdown(src['url'])
         parsed = parse_markdown_tables(content)
-        print(f"数据源 {src['name']} 解析到 {len(parsed)} 条 2027 届秋招信息")
+        print(f"数据源 {src['name']} 解析到 {len(parsed)} 条 2027 届岗位信息")
         all_raw_jobs.extend(parsed)
     
-    # 筛选
-    target_jobs = filter_jobs(all_raw_jobs)
-    existing_jobs = load_existing_jobs()
+    user_email = os.environ.get('EMAIL_RECEIVER', '').strip()
+    gf_email = os.environ.get('EMAIL_GF_RECEIVER', '').strip()
+
+    # 1. 筛选【深圳全量岗位】（供两人共享）
+    all_shenzhen_jobs = filter_all_shenzhen_jobs(all_raw_jobs)
+    existing_all_jobs = load_existing_jobs(CSV_ALL_JOBS)
     
-    # 去重提取新岗位
-    new_jobs = []
-    for job in target_jobs:
+    new_all_jobs = []
+    for job in all_shenzhen_jobs:
         key = (job['company'], job['job_title'])
-        if key not in existing_jobs:
-            new_jobs.append(job)
-            existing_jobs.add(key)
-            
-    print(f"📊 [2027届数据统计] 匹配【深圳 2027届数据岗】总数: {len(target_jobs)} 个")
-    print(f"📊 [2027届数据统计] 表格已保存岗位数: {len(existing_jobs)} 个")
-    print(f"📊 [2027届数据统计] 本次巡检计算出的新增岗位: {len(new_jobs)} 个")
-    
-    if new_jobs:
-        save_jobs(new_jobs)
-        content = f"🎉 发现新增【深圳】2027 届 DA/DS/BA 岗位共 {len(new_jobs)} 个（最新 Excel 表格已发送至邮件附件）：\n\n"
-        for job in new_jobs:
-            content += f"🏢 公司：{job['company']}\n📌 岗位：{job['job_title']}\n📍 地点：{job['location']}\n📅 发布日期：{job['pub_date']}\n🔗 链接：{job['link']}\n"
+        if key not in existing_all_jobs:
+            new_all_jobs.append(job)
+            existing_all_jobs.add(key)
+
+    # 构造两人接收列表
+    shared_receivers = [user_email]
+    if gf_email:
+        shared_receivers.append(gf_email)
+
+    print(f"📊 [全量深圳岗位] 累计匹配: {len(all_shenzhen_jobs)} 个, 本次新增: {len(new_all_jobs)} 个")
+
+    # 发送【全量共享提醒】（发给两人）
+    if new_all_jobs:
+        save_jobs(CSV_ALL_JOBS, new_all_jobs)
+        content = f"🎉 发现新增【深圳全量】2027 届校招岗位共 {len(new_all_jobs)} 个（含完整 Excel 表格附件）：\n\n"
+        for job in new_all_jobs:
+            content += f"🏢 公司：{job['company']}\n📌 岗位：{job['job_title']}\n📍 地点：{job['location']}\n📅 日期：{job['pub_date']}\n🔗 链接：{job['link']}\n"
             content += "-" * 30 + "\n"
-        send_email_with_attachment(f"【秋招提醒】新增 {len(new_jobs)} 个深圳数据岗位！（含最新 Excel 附件）", content)
+        send_email_with_attachment(shared_receivers, f"【双人共享-秋招提醒】新增 {len(new_all_jobs)} 个深圳全量岗位！（含最新附件）", content, CSV_ALL_JOBS, "深圳2027全量校招岗位汇总表.csv")
     else:
-        print("当前无新增匹配岗位，发送巡检邮件...")
-        content = f"✅ 2027 届秋招监控系统正常运行中！\n\n数据源中目前符合条件的【深圳 2027 届】DA/DS/BA 岗位共 {len(target_jobs)} 个，已全部为您归档存入附件表格中。\n本次巡检暂无新发增量岗位，完整的 2027 届岗位表格已随附件发送给您！"
-        send_email_with_attachment("【秋招助手】最新深圳2027届数据岗位汇总表（含附件）", content)
+        content = f"✅ 2027 届深圳全量秋招监控正常运行中！\n\n目前累计抓取到【深圳全量校招岗位】共 {len(all_shenzhen_jobs)} 个，已被全部为您归档存入附件表格中。"
+        send_email_with_attachment(shared_receivers, "【双人共享-秋招助手】最新深圳全量校招岗位汇总表", content, CSV_ALL_JOBS, "深圳2027全量校招岗位汇总表.csv")
+
+    # 2. 筛选【个人 DA/DS/BA 数据专岗】（仅发给自己）
+    data_jobs = filter_data_jobs(all_shenzhen_jobs)
+    existing_data_jobs = load_existing_jobs(CSV_DATA_JOBS)
+
+    new_data_jobs = []
+    for job in data_jobs:
+        key = (job['company'], job['job_title'])
+        if key not in existing_data_jobs:
+            new_data_jobs.append(job)
+            existing_data_jobs.add(key)
+
+    print(f"📊 [个人数据专岗] 累计匹配: {len(data_jobs)} 个, 本次新增: {len(new_data_jobs)} 个")
+
+    # 发送【个人专属提醒】（仅发给自己）
+    if new_data_jobs:
+        save_jobs(CSV_DATA_JOBS, new_data_jobs)
+        content = f"🎯 [个人专属] 发现新增【深圳】2027 届 DA/DS/BA 数据岗位共 {len(new_data_jobs)} 个：\n\n"
+        for job in new_data_jobs:
+            content += f"🏢 公司：{job['company']}\n📌 岗位：{job['job_title']}\n📍 地点：{job['location']}\n📅 日期：{job['pub_date']}\n🔗 链接：{job['link']}\n"
+            content += "-" * 30 + "\n"
+        send_email_with_attachment([user_email], f"【个人专属-数据岗位】新增 {len(new_data_jobs)} 个深圳 DA/DS/BA 岗位！", content, CSV_DATA_JOBS, "深圳2027数据岗位精选表.csv")
+    else:
+        content = f"✅ [个人专属] 数据岗监控正常运行中！\n\n目前累计为你追踪到【深圳 DA/DS/BA 数据岗】共 {len(data_jobs)} 个，完整表格已随附件发送给您！"
+        send_email_with_attachment([user_email], "【个人专属-数据岗位】最新深圳 DA/DS/BA 岗位精选表", content, CSV_DATA_JOBS, "深圳2027数据岗位精选表.csv")
 
 if __name__ == '__main__':
     main()
