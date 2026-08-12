@@ -12,11 +12,8 @@ from email.header import Header
 from email.utils import formataddr
 
 # ================= 筛选条件配置 =================
-# 强匹配深圳
 STRICT_SHENZHEN_KEYWORDS = ['深圳', 'Shenzhen', '深']
-# 明确排除其他非深圳城市
 EXCLUDE_CITIES = ['广州', '郑州', '北京', '上海', '杭州', '成都', '武汉', '南京', '苏州', '合肥', '长沙', '重庆', '天津', '厦门', '东莞', '佛山']
-# 岗位强匹配关键字
 JOB_KEYWORDS = ['数据分析', '数据科学', '商业分析', '数据', 'DA', 'DS', 'BA', 'Data', 'Analyst', 'Scientist']
 
 CSV_FILE = 'shenzhen_2027_data_jobs.csv'
@@ -34,36 +31,33 @@ SOURCES = [
 ]
 
 def clean_markdown_text(text):
-    """把 Markdown 里的超链接 [文本](url)、加粗 **文本**、HTML 标签如 <br> 彻底清洗为纯文本"""
+    """清洗 Markdown 文本"""
     if not text:
         return ""
     if isinstance(text, list):
         text = " ".join([str(i) for i in text])
     text = str(text)
-    # 去除 <br>、<b> 等 HTML 标签
     text = re.sub(r'<[^>]+>', ' ', text)
-    # 把 [文本](链接) 替换为纯文本
     text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', text)
-    # 去除加粗/斜体 **text** / *text*
     text = re.sub(r'\*+', '', text)
     return text.strip()
 
 def extract_url_from_line(line):
-    """从整行提取一个最精准的 HTTP 投递链接"""
+    """提取 HTTP 链接"""
     urls = re.findall(r'https?://[^\s\)"\'>]+', str(line))
     if urls:
         return urls[0]
     return ""
 
 def extract_date_from_line(line):
-    """提取形如 2026-08-10 或 08/11 的发布日期"""
+    """提取发布日期"""
     date_match = re.search(r'(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})', str(line))
     if date_match:
         return date_match.group(1)
     return datetime.now().strftime('%Y-%m-%d')
 
 def fetch_markdown(url):
-    """抓取 Markdown 文本并处理 URL 编码"""
+    """抓取 Markdown 文本"""
     try:
         safe_url = urllib.parse.quote(url, safe=':/%?&=#')
         req = urllib.request.Request(safe_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
@@ -74,7 +68,7 @@ def fetch_markdown(url):
         return ""
 
 def parse_markdown_tables(content):
-    """精细化解析 Markdown 表格，防止列混杂"""
+    """解析 Markdown 表格"""
     jobs = []
     lines = content.split('\n')
     for line in lines:
@@ -89,7 +83,6 @@ def parse_markdown_tables(content):
                 job_title = clean_markdown_text(raw_job)
                 location = clean_markdown_text(raw_location)
 
-                # 过滤表格头部和格式线
                 if any(x in company for x in ['---', '公司', '名称', ':---', '公司名称']):
                     continue
                 
@@ -107,16 +100,14 @@ def parse_markdown_tables(content):
     return jobs
 
 def filter_jobs(jobs):
-    """精准过滤：严格必须包含深圳 + DA/DS/BA/数据岗位"""
+    """精准过滤：严格深圳 + 数据岗位"""
     filtered = []
     for job in jobs:
         job_title = job['job_title']
         location = job['location']
         
-        # 1. 岗位匹配
         title_match = any(k.lower() in job_title.lower() for k in JOB_KEYWORDS)
         
-        # 2. 地点精准匹配（排除异地，强保留深圳）
         has_exclude_city = any(city in location for city in EXCLUDE_CITIES)
         has_shenzhen = any(sz in location for sz in STRICT_SHENZHEN_KEYWORDS)
         
@@ -131,7 +122,7 @@ def filter_jobs(jobs):
     return filtered
 
 def load_existing_jobs():
-    """读取已有历史岗位（去重）"""
+    """读取历史已存岗位"""
     existing = set()
     if os.path.exists(CSV_FILE):
         with open(CSV_FILE, mode='r', encoding='utf-8-sig') as f:
@@ -141,7 +132,7 @@ def load_existing_jobs():
     return existing
 
 def save_jobs(new_jobs):
-    """保存新岗位至 CSV 表格"""
+    """保存新岗位"""
     file_exists = os.path.exists(CSV_FILE)
     with open(CSV_FILE, mode='a', encoding='utf-8-sig', newline='') as f:
         writer = csv.writer(f)
@@ -151,7 +142,7 @@ def save_jobs(new_jobs):
             writer.writerow([job['company'], job['job_title'], job['location'], job['pub_date'], job['link'], '未投递'])
 
 def send_email_with_attachment(subject, content):
-    """发送带 CSV 表格附件的邮件"""
+    """发送邮件"""
     sender = os.environ.get('EMAIL_SENDER', '').strip()
     password = os.environ.get('EMAIL_PASSWORD', '').strip()
     receiver = os.environ.get('EMAIL_RECEIVER', '').strip()
@@ -221,7 +212,10 @@ def main():
             new_jobs.append(job)
             existing_jobs.add(key)
             
-    print(f"筛选匹配完成！本次新增 {len(new_jobs)} 个深圳相关岗位。")
+    # 透明明细日志打印
+    print(f"📊 [数据统计] 当前数据源符合【深圳数据岗】条件的总岗位数: {len(target_jobs)} 个")
+    print(f"📊 [数据统计] 表格已归档保存的岗位数: {len(existing_jobs)} 个")
+    print(f"📊 [数据统计] 本次巡检计算出的【增量新岗位】: {len(new_jobs)} 个")
     
     if new_jobs:
         save_jobs(new_jobs)
@@ -231,8 +225,8 @@ def main():
             content += "-" * 30 + "\n"
         send_email_with_attachment(f"【秋招提醒】新增 {len(new_jobs)} 个深圳数据岗位！（含最新 Excel 附件）", content)
     else:
-        print("当前无新增匹配岗位，发送巡检邮件...")
-        content = f"✅ 秋招监控系统正常运行中！\n\n当前累计为你追踪到 {len(existing_jobs)} 个符合条件的【深圳】DA/DS/BA 岗位。\n本次巡检暂无新开放岗位，已将最新的完整岗位汇总表作为附件发送给你！"
+        print("当前无增量新岗位，发送巡检邮件...")
+        content = f"✅ 秋招监控系统正常运行中！\n\n数据源中目前符合条件的【深圳】DA/DS/BA 岗位共 {len(target_jobs)} 个，已全部为您归档存入附件表格中。\n本次巡检暂无新发增量岗位，完整的岗位表格已随附件发送给您！"
         send_email_with_attachment("【秋招助手】最新深圳数据岗位汇总表（含附件）", content)
 
 if __name__ == '__main__':
