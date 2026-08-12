@@ -32,6 +32,9 @@ def clean_markdown_text(text):
     """把 Markdown 里的超链接 [文本](url)、加粗 **文本**、HTML 标签如 <br> 彻底清洗为纯文本"""
     if not text:
         return ""
+    if isinstance(text, list):
+        text = " ".join([str(i) for i in text])
+    text = str(text)
     # 去除 <br>、<b> 等 HTML 标签
     text = re.sub(r'<[^>]+>', ' ', text)
     # 把 [文本](链接) 替换为纯文本
@@ -43,14 +46,14 @@ def clean_markdown_text(text):
 
 def extract_url_from_line(line):
     """从整行提取一个最精准的 HTTP 投递链接"""
-    urls = re.findall(r'https?://[^\s\)"\'>]+', line)
+    urls = re.findall(r'https?://[^\s\)"\'>]+', str(line))
     if urls:
         return urls[0]
     return ""
 
 def extract_date_from_line(line):
     """提取形如 2026-08-10 或 08/11 的发布日期"""
-    date_match = re.search(r'(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})', line)
+    date_match = re.search(r'(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})', str(line))
     if date_match:
         return date_match.group(1)
     return datetime.now().strftime('%Y-%m-%d')
@@ -73,18 +76,19 @@ def parse_markdown_tables(content):
     for line in lines:
         if '|' in line:
             parts = [p.strip() for p in line.split('|')]
-            if len(parts) >= 4:
-                raw_company = parts
-                raw_job = parts
+            if len(parts) >= 3:
+                # 修复下标：parts公司，parts岗位，parts地点
+                raw_company = parts if len(parts) > 1 else ""
+                raw_job = parts if len(parts) > 2 else ""
                 raw_location = parts if len(parts) > 3 else ""
-                
-                # 过滤表格头部和格式线
-                if any(x in raw_company for x in ['---', '公司', '名称', ':---']):
-                    continue
                 
                 company = clean_markdown_text(raw_company)
                 job_title = clean_markdown_text(raw_job)
                 location = clean_markdown_text(raw_location)
+
+                # 过滤表格头部和格式线
+                if any(x in company for x in ['---', '公司', '名称', ':---', '公司名称']):
+                    continue
                 
                 link = extract_url_from_line(line)
                 pub_date = extract_date_from_line(line)
