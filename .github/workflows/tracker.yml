@@ -6,17 +6,17 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # 显式开通仓库写入权限
+  contents: write
 
 jobs:
   run-tracker:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4  # 升级到 v4 解决 Warning
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5  # 升级到 v5 解决 Warning
+        uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
@@ -25,15 +25,14 @@ jobs:
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
+          EMAIL_GF_RECEIVER: ${{ secrets.EMAIL_GF_RECEIVER }}
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
         run: python job_tracker.py
 
-      - name: Commit and Push Updated CSV
+      - name: Commit and Push Updated CSVs
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -f "shenzhen_2027_data_jobs.csv" ]; then
-            git add shenzhen_2027_data_jobs.csv
-            git commit -m "Auto update Shenzhen 2027 DA/DS/BA job list" || echo "No changes to commit"
-            git push
-          fi
+          git add shenzhen_all_jobs.csv shenzhen_data_jobs.csv || true
+          git commit -m "Auto update Shenzhen 2027 job lists" || echo "No changes to commit"
+          git push
