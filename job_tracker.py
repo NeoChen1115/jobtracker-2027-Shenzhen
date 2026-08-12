@@ -158,7 +158,9 @@ def main():
             content += "-" * 30 + "\n"
         send_email(f"【秋招提醒】新增 {len(new_jobs)} 个深圳数据岗位！", content)
     else:
-        print("当前无新增匹配岗位。")
+        print("当前无新增匹配岗位，发送巡检测试邮件...")
+        content = f"✅ 秋招监控系统正常运行中！\n\n当前表格已累计为你追踪到 {len(existing_jobs)} 个符合条件的深圳 DA/DS/BA 岗位。\n本次巡检暂无新开放的岗位，一旦有新岗位发布将第一时间提醒你！"
+        send_email("【秋招助手】系统服务正常/测试邮件", content)
 
 if __name__ == '__main__':
     main()
